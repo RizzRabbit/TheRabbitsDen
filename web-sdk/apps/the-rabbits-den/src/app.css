@@ -1,11 +1,52 @@
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;700&family=Roboto+Condensed:wght@400;700&display=swap');
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* Colors (Nolimit City inspired) */
+  --primary-color: #3a4750; /* Dark Slate Gray */
+  --secondary-color: #a9b7c6; /* Light Blue-Gray */
+  --background-color: #1a1a1a; /* Very Dark Gray */
+  --text-color: #e0e0e0; /* Light Gray */
+  --accent-color: #ff4d4d; /* Brighter Red */
+  --danger-color: #cc0000; /* Darker, more intense red */
+  --success-color: #4CAF50; /* Green for success/wins */
+
+  /* Fonts (Nolimit City inspired) */
+  --font-family-primary: 'Oswald', sans-serif; /* For titles */
+  --font-family-secondary: 'Roboto Condensed', sans-serif; /* For body text */
+
+  /* Font Sizes */
+  --font-size-small: 0.875rem;
+  --font-size-medium: 1rem;
+  --font-size-large: 1.25rem;
+  --font-size-xl: 2.5rem; /* Increased for impact */
+  --font-size-xxl: 4rem; /* Increased for impact */
+
+  /* Spacing */
+  --spacing-unit: 8px;
+  --spacing-small: calc(var(--spacing-unit) * 1);   /* 8px */
+  --spacing-medium: calc(var(--spacing-unit) * 2);  /* 16px */
+  --spacing-large: calc(var(--spacing-unit) * 3);   /* 24px */
+  --spacing-xl: calc(var(--spacing-unit) * 4);      /* 32px */
+
+  /* Borders */
+  --border-radius: 8px; /* Slightly softer edges */
+  --border-width: 1px;
+  --border-color: rgba(255, 255, 255, 0.15);
+  --border-color-light: rgba(255, 255, 255, 0.05);
+
+  /* Shadows */
+  --shadow-light: 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-medium: 0 4px 8px rgba(0, 0, 0, 0.3);
+  --shadow-dark: 0 10px 20px rgba(0, 0, 0, 0.5); /* More pronounced */
+  --inner-shadow: inset 0 0 10px rgba(0, 0, 0, 0.7);
+
+  font-family: var(--font-family-secondary);
   line-height: 1.5;
   font-weight: 400;
 
   color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  color: var(--text-color);
+  background: linear-gradient(135deg, #1a1a1a 0%, #2c2c2c 100%); /* Subtle gradient */
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -13,56 +54,90 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
 a {
   font-weight: 500;
-  color: #646cff;
+  color: var(--primary-color);
   text-decoration: inherit;
 }
 a:hover {
-  color: #535bf2;
-}
-
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+  color: var(--accent-color);
 }
 
 .card {
-  padding: 2em;
+  padding: var(--spacing-large);
 }
 
 #app {
-  max-width: 1280px;
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: var(--spacing-xl);
   text-align: center;
 }
 
 button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
+  border-radius: var(--border-radius);
+  border: var(--border-width) solid var(--border-color);
+  padding: var(--spacing-small) var(--spacing-medium);
+  font-size: var(--font-size-medium);
   font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
+  background: linear-gradient(180deg, var(--primary-color) 0%, darken(var(--primary-color), 10%) 100%);
+  color: var(--text-color);
   cursor: pointer;
-  transition: border-color 0.25s;
+  transition: all 0.25s ease-in-out;
+  box-shadow: var(--shadow-medium);
 }
 button:hover {
-  border-color: #646cff;
+  border-color: var(--accent-color);
+  background: linear-gradient(180deg, var(--accent-color) 0%, darken(var(--accent-color), 10%) 100%);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-dark);
 }
 button:focus,
 button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
+}
+
+input[type="number"] {
+  padding: var(--spacing-small);
+  border-radius: var(--border-radius);
+  border: var(--border-width) solid var(--border-color);
+  background-color: #1a1a1a; /* Dark background */
+  color: var(--text-color);
+  font-size: var(--font-size-medium);
+  box-shadow: var(--inner-shadow);
+}
+
+input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: var(--inner-shadow), 0 0 10px rgba(255, 77, 77, 0.5);
+}
+
+.bet-level-button {
+  background: linear-gradient(180deg, #444 0%, #333 100%);
+  border: 1px solid #666;
+  color: white;
+  padding: 8px 12px;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: all 0.2s ease-in-out;
+  box-shadow: var(--shadow-light);
+}
+
+.bet-level-button:hover {
+  background: linear-gradient(180deg, #666 0%, #555 100%);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-medium);
 }
 
 @media (prefers-color-scheme: light) {

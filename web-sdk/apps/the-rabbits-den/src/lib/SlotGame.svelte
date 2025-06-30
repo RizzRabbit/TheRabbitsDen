@@ -1,383 +1,39 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import * as PIXI from 'pixi.js';
-  import { gsap } from 'gsap';
+  import { initPixi, getSymbolTexture, app, spritesheet } from './pixi';
+  import { animateSpin, animateCascade } from './pixi/animations';
+  import { grid, message, betAmount, winAmount, totalSpinWin, showTotalWin, balance, spinning, freeGamesRemaining, currentMultiplier, spin as performSpin, initializeGame, minBet, maxBet, stepBet, betLevels, gameInitialized } from './game-logic';
 
-  let app: PIXI.Application;
-  let gridContainer: PIXI.Container; // Container for all grid symbols
-  let symbols: PIXI.Sprite[][] = []; // 2D array to hold PIXI.Sprite objects
-  let spritesheet: PIXI.Spritesheet;
-  let questionTexture: PIXI.Texture;
+  let gridContainer: PIXI.Container;
+  let symbols: PIXI.Sprite[][] = [];
   let reusableSprites: PIXI.Sprite[] = [];
 
-  let grid: string[][] = Array(7).fill(null).map(() => Array(7).fill('question'));
-  let message: string = $state('Welcome to The Rabbits Den!');
-  let betAmount: number = $state(1);
-  let winAmount: number = $state(0);
-  let totalSpinWin: number = $state(0); // New variable for total win of a spin
-  let showTotalWin: boolean = $state(false); // Controls visibility of total win display
-  let balance: number = $state(100); // Initial balance
-  let spinning: boolean = $state(false);
-  let freeGamesRemaining: number = $state(0);
-  let currentMultiplier: number = $state(1);
+  const cell_size = 50; // Assuming a base size for each cell
+  const grid_gap = 10;
 
-  const cell_size = 80; // Fixed size for each grid cell
-  const grid_gap = 5; // Gap between cells
-
-  // Symbols for the game (excluding multipliers from grid generation, but including them for display)
-  const gameSymbols = ['l1', 'l2', 'l3', 'l4', 'h1', 'h2', 'h3', 'h4', 's', 'w', '2X', '4X', '5X', '7X', '10X'];
-
-  async function spin() {
-    if (betAmount <= 0) {
-      message = 'Bet amount must be positive!';
-      return;
-    }
-
-    if (balance < betAmount && freeGamesRemaining === 0) {
-      message = 'Not enough balance!';
-      return;
-    }
-
-    spinning = true;
-    message = 'Spinning...';
-    winAmount = 0;
-    
-    if (freeGamesRemaining === 0) {
-      balance -= betAmount; // Deduct bet immediately
-    }
-
-    try {
-      const response = await fetch('http://localhost:5000/spin', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          bet_amount: betAmount,
-          free_games_remaining: freeGamesRemaining,
-          current_multiplier: currentMultiplier
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `Backend error: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      // Update the Svelte `grid` variable with the initial grid from the backend
-      grid = data.initial_grid;
-
-      // Start the spin animation, passing the initial grid for the final state
-      await animateSpin(1000, data.initial_grid);
-
-      const cascadeResults = data.cascade_results; // Get all cascade steps
-      let currentTotalWin = 0;
-
-      // Use the initial grid for the first cascade step
-      let currentGridState = data.initial_grid;
-
-      for (let i = 0; i < cascadeResults.length; i++) {
-        const cascade = cascadeResults[i];
-        
-        // Animate the cascade step
-        await animateCascade(cascade.grid, cascade.winning_cells, 700, 500, 500); // Highlight, fade, update durations
-
-        currentTotalWin += cascade.win_amount; 
-        winAmount = currentTotalWin; 
-        message = cascade.message || `Cascade ${i + 1} complete!`;
-
-        // Update grid state for the next iteration
-        currentGridState = cascade.grid; 
-      }
-
-      // After all cascades, ensure the Svelte `grid` variable reflects the final state
-      grid = currentGridState;
-
-      balance += data.total_win_amount; // Corrected balance update
-      totalSpinWin = data.total_win_amount; // Set total spin win
-      showTotalWin = totalSpinWin > 0; // Only show if there's a win
-      if (showTotalWin) {
-        setTimeout(() => showTotalWin = false, 3000); // Hide after 3 seconds
-      }
-      message = data.message; // Final message from backend
-      freeGamesRemaining = data.free_games_remaining;
-      currentMultiplier = data.current_multiplier;
-
-      // TODO: Integrate with Stake-Engine for actual betting and result verification
-
-    } catch (error) {
-      console.error('Error during spin:', error);
-      message = `Error during spin: ${error.message || 'Please try again.'}`;
-      // If balance was deducted, and spin failed, consider refunding or handling appropriately
-      // For now, we'll leave it deducted as per original logic, but this is a point for review.
-    } finally {
-      spinning = false;
-      if (freeGamesRemaining > 0) {
-        // Automatically spin during free games
-        setTimeout(spin, 1000); // Spin again after 1 second
-      }
-    }
-  }
-
-  async function animateSpin(duration: number, finalGrid: string[][]) {
-    const animationEndTime = Date.now() + duration;
-    const availableSymbols = Object.keys(spritesheet.textures);
-    let lastUpdateTime = 0;
-    const updateInterval = 50; // Update textures every 50ms
-
-    function update(currentTime: number) {
-      if (Date.now() < animationEndTime) {
-        if (currentTime - lastUpdateTime > updateInterval) {
-          lastUpdateTime = currentTime;
-          for (let r = 0; r < 7; r++) {
-            for (let c = 0; c < 7; c++) {
-              const randomSymbol = availableSymbols[Math.floor(Math.random() * availableSymbols.length)];
-              symbols[r][c].texture = spritesheet.textures[randomSymbol];
-            }
-          }
-        }
-        requestAnimationFrame(update);
-      } else {
-        // Animation finished, set final textures
-        for (let r = 0; r < 7; r++) {
-          for (let c = 0; c < 7; c++) {
-            const sprite = symbols[r][c];
-            if (!sprite) {
-              console.error(`Error: Sprite at [${r}, ${c}] is null or undefined in animateSpin finalization.`);
-              continue; // Skip this iteration if sprite is null
-            }
-            const symbolType = finalGrid[r][c];
-            if (symbolType === 'question') {
-              sprite.texture = questionTexture;
-            } else {
-              sprite.texture = spritesheet.textures[symbolType + '.png'];
-            }
-            sprite.alpha = 1; // Ensure visibility
-            sprite.tint = 0xFFFFFF; // Reset tint
-            let textureWidth, textureHeight;
-            if (sprite.texture === questionTexture) {
-              textureWidth = questionTexture.width;
-              textureHeight = questionTexture.height;
-            } else {
-              textureWidth = sprite.texture.orig.width;
-              textureHeight = sprite.texture.orig.height;
-            }
-            const scaleX = cell_size / textureWidth;
-            const scaleY = cell_size / textureHeight;
-            sprite.scale.set(scaleX, scaleY);
-          }
-        }
-      }
-    }
-
-    requestAnimationFrame(update);
-    await new Promise(resolve => setTimeout(resolve, duration));
-  }
-
-    async function animateCascade(newGrid: string[][], winningCells: [number, number][], highlightDuration: number, fadeOutDuration: number, updateDuration: number) {
-    const getSymbolTexture = (symbolType: string) => {
-      if (symbolType === 'question') {
-        return questionTexture;
-      } else {
-        const texture = spritesheet.textures[symbolType + '.png'];
-        if (!texture) {
-          console.error(`Texture for symbolType '${symbolType}' not found in spritesheet.textures. Falling back to questionTexture.`);
-          return questionTexture; // Fallback to questionTexture
-        }
-        return texture;
-      }
-    };
-
-    // 1. Highlight winning symbols and scale them up slightly
-    const highlightPromises = winningCells.map(([r, c]) => {
-      const sprite = symbols[r][c];
-      if (!sprite) {
-        console.error(`Error: Sprite at [${r}, ${c}] is null or undefined during highlight.`);
-        return Promise.resolve(); // Skip this sprite
-      }
-      sprite.tint = 0x4CAF50; // Green tint
-      return gsap.to(sprite.scale, { x: 1.1, y: 1.1, duration: highlightDuration / 1000, ease: "power2.out" });
-    });
-    await Promise.all(highlightPromises);
-
-    // 2. Fade out winning symbols
-    const fadeOutPromises = winningCells.map(([r, c]) => {
-      const sprite = symbols[r][c];
-      if (!sprite) {
-        console.error(`Error: Sprite at [${r}, ${c}] is null or undefined during fade out.`);
-        return Promise.resolve(); // Skip this sprite
-      }
-      return gsap.to(sprite, { alpha: 0, duration: fadeOutDuration / 1000, ease: "power2.in" });
-    });
-    await Promise.all(fadeOutPromises);
-
-    // Hide winning symbols and add them to a reusable pool
-    for (const [r, c] of winningCells) {
-      const sprite = symbols[r][c];
-      if (sprite) {
-        sprite.visible = false;
-        sprite.alpha = 1; // Reset alpha for next use
-        sprite.tint = 0xFFFFFF; // Reset tint
-        reusableSprites.push(sprite);
-      }
-    }
-
-    // 3. Animate symbols dropping and new symbols appearing
-    const dropPromises: Promise<void>[] = [];
-    const nextSymbols: PIXI.Sprite[][] = Array(7).fill(null).map(() => Array(7).fill(null));
-
-    for (let c = 0; c < 7; c++) {
-      let emptySlots = 0;
-      // Drop existing symbols down
-      for (let r = 6; r >= 0; r--) {
-        if (winningCells.some(cell => cell[0] === r && cell[1] === c)) {
-          emptySlots++;
-        } else if (emptySlots > 0) {
-          const sprite = symbols[r][c];
-          if (!sprite) {
-            console.error(`Error: Sprite at [${r}, ${c}] is null or undefined during drop animation.`);
-            continue; // Skip this iteration if sprite is null
-          }
-          const targetY = (r + emptySlots) * (cell_size + grid_gap);
-          nextSymbols[r + emptySlots][c] = sprite;
-          dropPromises.push(gsap.to(sprite, { y: targetY, duration: updateDuration / 1000, ease: "bounce.out" }).then());
-        } else {
-          nextSymbols[r][c] = symbols[r][c];
-        }
-      }
-
-      // Add new symbols at the top
-      for (let i = 0; i < emptySlots; i++) {
-        const symbolType = newGrid[i][c];
-        let newSprite: PIXI.Sprite;
-
-        if (reusableSprites.length > 0) {
-          newSprite = reusableSprites.pop()!; // Reuse existing sprite
-          newSprite.visible = true;
-          newSprite.texture = getSymbolTexture(symbolType);
-          newSprite.alpha = 1;
-          newSprite.tint = 0xFFFFFF;
-        } else {
-          newSprite = new PIXI.Sprite(getSymbolTexture(symbolType));
-          gridContainer.addChild(newSprite);
-        }
-
-        const newTexture = getSymbolTexture(symbolType);
-        let textureWidth, textureHeight;
-        if (newTexture === questionTexture) {
-          textureWidth = questionTexture.width;
-          textureHeight = questionTexture.height;
-        } else {
-          textureWidth = newTexture.orig.width;
-          textureHeight = newTexture.orig.height;
-        }
-        const scaleX = cell_size / textureWidth;
-        const scaleY = cell_size / textureHeight;
-        newSprite.scale.set(scaleX, scaleY);
-        newSprite.x = c * (cell_size + grid_gap);
-        newSprite.y = -((emptySlots - i) * (cell_size + grid_gap)); // Start above the grid
-        nextSymbols[i][c] = newSprite;
-        dropPromises.push(gsap.to(newSprite, { y: i * (cell_size + grid_gap), duration: updateDuration / 1000, ease: "bounce.out" }).then());
-      }
-    }
-    await Promise.all(dropPromises);
-
-    // 4. Update the main symbols array and ensure final state
-    symbols = nextSymbols;
-    for (let r = 0; r < 7; r++) {
-      for (let c = 0; c < 7; c++) {
-        const sprite = symbols[r][c];
-        if (!sprite) {
-          console.error(`Error: Sprite at [${r}, ${c}] is null or undefined in animateCascade finalization.`);
-          continue; // Skip this iteration if sprite is null
-        }
-        // Update the texture based on the new grid state
-        sprite.texture = getSymbolTexture(newGrid[r][c]);
-
-        let textureWidth, textureHeight;
-        if (sprite.texture === questionTexture) {
-          textureWidth = questionTexture.width;
-          textureHeight = questionTexture.height;
-        } else {
-          textureWidth = sprite.texture.orig.width;
-          textureHeight = sprite.texture.orig.height;
-        }
-        const scaleX = cell_size / textureWidth;
-        const scaleY = cell_size / textureHeight;
-        sprite.alpha = 1;
-        sprite.tint = 0xFFFFFF;
-        sprite.scale.set(scaleX, scaleY);
-        sprite.visible = true; // Ensure visibility
-        sprite.x = c * (cell_size + grid_gap); // Ensure correct final position
-        sprite.y = r * (cell_size + grid_gap); // Ensure correct final position
-      }
-    }
-  }
+  
 
   onMount(async () => {
     try {
-      // Initialize PixiJS Application
-      app = new PIXI.Application();
-      await app.init({
-        width: (cell_size + grid_gap) * 7 - grid_gap, // Calculate total grid width
-        height: (cell_size + grid_gap) * 7 - grid_gap, // Calculate total grid height
-        transparent: true, // Make background transparent
-        antialias: true,
-      });
-
-      const pixiContainer = document.getElementById('pixi-container');
-      if (pixiContainer) {
-        pixiContainer.appendChild(app.canvas as HTMLCanvasElement);
-        console.log('PixiJS canvas appended successfully.');
-      } else {
-        console.error('Could not find pixi-container.');
-      }
-
-      // Load assets
-      const backgroundTexture = await PIXI.Assets.load('/background.png');
-      spritesheet = await PIXI.Assets.load({ src: '/brspritesheet.json', data: { premultipliedAlpha: false } });
-      questionTexture = await PIXI.Assets.load({ src: '/question.png', data: { premultipliedAlpha: false } });
-
-      
+      await initPixi('pixi-container', '/background.png', '/therabbitsden.json', '/l1.png');
 
       gridContainer = new PIXI.Container();
       app.stage.addChild(gridContainer);
+      console.log('gridContainer added to stage. Stage children count:', app.stage.children.length);
 
-      // Create initial sprites
-      for (let r = 0; r < 7; r++) {
-        symbols[r] = [];
-        for (let c = 0; c < 7; c++) {
-          const symbolType = grid[r][c];
-          let texture;
-          if (symbolType === 'question') {
-            texture = questionTexture;
-          } else {
-            texture = spritesheet.textures[symbolType + '.png'];
-          }
-          
-          const sprite = new PIXI.Sprite(texture);
-          let textureWidth, textureHeight;
-          if (texture === questionTexture) {
-            textureWidth = questionTexture.width;
-            textureHeight = questionTexture.height;
-          } else {
-            textureWidth = texture.orig.width;
-            textureHeight = texture.orig.height;
-          }
-          const scaleX = cell_size / textureWidth;
-          const scaleY = cell_size / textureHeight;
-          sprite.scale.set(scaleX, scaleY);
-          sprite.x = c * (cell_size + grid_gap);
-          sprite.y = r * (cell_size + grid_gap);
-          gridContainer.addChild(sprite);
-          symbols[r][c] = sprite;
-        }
-      }
+      // Add background
+      const background = PIXI.Sprite.from('/background.png');
+      background.width = app.screen.width;
+      background.height = app.screen.height;
+      app.stage.addChildAt(background, 0); // Add background at the bottom layer
 
       
+      await initializeGame(); // Initialize game with RGS authentication
 
+      // Initial drawing of the grid
+      drawGrid(get(grid));
     } catch (error) {
       console.error('Error loading PixiJS assets or initializing PixiJS:', error);
     }
@@ -386,164 +42,316 @@
   onDestroy(() => {
     app?.destroy(true);
   });
+
+  async function handleSpin() {
+    console.log('Spin button clicked. Calling performSpin...');
+    await performSpin(symbols, gridContainer, reusableSprites);
+  }
+
+  function drawGrid(currentGrid: string[][]) {
+    // Clear existing symbols if any
+    symbols.forEach(row => {
+      row.forEach(symbol => {
+        if (symbol) {
+          gridContainer.removeChild(symbol);
+          symbol.destroy();
+        }
+      });
+    });
+    symbols = []; // Reset symbols array
+
+    for (let col = 0; col < currentGrid[0].length; col++) {
+      symbols[col] = [];
+      for (let row = 0; row < currentGrid.length; row++) {
+        const symbolType = currentGrid[row][col];
+        console.log(`Drawing symbol: row=${row}, col=${col}, type=${symbolType}`);
+        const texture = getSymbolTexture(symbolType);
+        if (!texture) {
+          console.error(`Texture is null or undefined for symbolType: ${symbolType}`);
+          continue; // Skip this symbol if texture is invalid
+        }
+        const symbol = new PIXI.Sprite(texture);
+
+        symbol.width = cell_size;
+        symbol.height = cell_size;
+        symbol.x = col * (cell_size + grid_gap);
+        symbol.y = row * (cell_size + grid_gap);
+
+        console.log(`Symbol position and size: x=${symbol.x}, y=${symbol.y}, width=${symbol.width}, height=${symbol.height}`);
+
+        gridContainer.addChild(symbol);
+        symbols[col][row] = symbol;
+      }
+    }
+
+    // Center the grid container
+    const gridWidth = currentGrid[0].length * (cell_size + grid_gap) - grid_gap;
+    const gridHeight = currentGrid.length * (cell_size + grid_gap) - grid_gap;
+    gridContainer.x = (app.screen.width - gridWidth) / 2;
+    gridContainer.y = (app.screen.height - gridHeight) / 2;
+
+    console.log('Grid drawn with symbols.');
+  }
+
+  // Subscribe to grid changes to redraw
+  grid.subscribe(currentGrid => {
+    if (app && gridContainer) {
+      drawGrid(currentGrid);
+    }
+  });
+
 </script>
 
-<style>
-  .slot-machine {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-family: 'Arial', sans-serif;
-    background-color: #282c34;
-    color: #fff;
-    padding: 20px;
-    border-radius: 10px;
-    box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
-    width: 100%;
-    max-width: 700px; /* Adjusted max-width for 7x7 grid */
-    background-image: url('/background.png'); /* Path to background image in public folder */
-    background-size: cover;
-    background-position: center;
-  }
-
-  .header {
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-  }
-
-  .balance {
-    font-size: 1.5em;
-    font-weight: bold;
-    color: #f0d94a;
-  }
-
-  .free-games-info {
-    font-size: 1.2em;
-    color: #61dafb;
-    margin-top: 10px;
-  }
-
-  /* Remove grid-container and grid-cell CSS as PixiJS handles rendering */
-  #pixi-container {
-    border: 5px solid #f0d94a; /* Gold border for grid */
-    border-radius: 10px;
-    overflow: hidden;
-    margin-bottom: 20px;
-    background-color: transparent; /* Make the container background transparent */
-  }
-
-  .controls {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 20px;
-    align-items: center;
-  }
-
-  button {
-    background-color: #61dafb;
-    color: #282c34;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 1.1em;
-    transition: background-color 0.3s ease;
-  }
-
-  button:hover:not(:disabled) {
-    background-color: #21a1f1;
-  }
-
-  button:disabled {
-    background-color: #555;
-    cursor: not-allowed;
-  }
-
-  input[type="number"] {
-    padding: 8px;
-    border-radius: 5px;
-    border: 1px solid #61dafb;
-    background-color: #3a3f47;
-    color: #fff;
-    width: 80px;
-    text-align: center;
-  }
-
-  .message {
-    font-size: 1.2em;
-    margin-bottom: 10px;
-    color: #a0a0a0;
-  }
-
-  .win-message {
-    color: #4CAF50; /* Green for win */
-    font-weight: bold;
-  }
-
-  .total-win-display {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 4em;
-    font-weight: bold;
-    color: #f0d94a;
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
-    animation: total-win-animation 3s forwards;
-  }
-
-  @keyframes total-win-animation {
-    0% {
-      opacity: 0;
-      transform: translate(-50%, -50%) scale(0.5);
-    }
-    20% {
-      opacity: 1;
-      transform: translate(-50%, -50%) scale(1.2);
-    }
-    80% {
-      opacity: 1;
-      transform: translate(-50%, -50%) scale(1.2);
-    }
-    100% {
-      opacity: 0;
-      transform: translate(-50%, -50%) scale(0.5);
-    }
-  }
-</style>
-
-<div class="slot-machine">
-  <div class="header">
-    <h1>The Rabbits Den</h1>
-    <div class="balance">Balance: ${balance}</div>
+<div class="slot-machine-container">
+  <div class="game-header">
+    <h1 class="game-title">The Rabbits Den</h1>
+    <div class="balance-info">Balance: ${$balance.toFixed(2)}</div>
   </div>
 
-  {#if freeGamesRemaining > 0}
-    <div class="free-games-info">
-      Free Games: {freeGamesRemaining} | Multiplier: {currentMultiplier}x
+  {#if $freeGamesRemaining > 0}
+    <div class="free-games-banner">
+      Free Games: {$freeGamesRemaining} | Multiplier: {$currentMultiplier}x
     </div>
   {/if}
 
-  <div id="pixi-container"></div>
+  <div class="game-area">
+    <div id="pixi-container" class="pixi-canvas-container"></div>
+  </div>
 
-  <div class="message">
-    {message}
-    {#if winAmount > 0}
-      <span class="win-message"> You won ${winAmount}!</span>
+  <div class="game-messages">
+    <span class="main-message">{$message}</span>
+    {#if $winAmount > 0}
+      <span class="win-display">You won ${$winAmount.toFixed(2)}!</span>
     {/if}
   </div>
 
-  {#if showTotalWin}
-    <div class="total-win-display">+${totalSpinWin}</div>
+  {#if $showTotalWin}
+    <div class="total-win-overlay">+{$totalSpinWin.toFixed(2)}</div>
   {/if}
 
-  <div class="controls">
-    <label for="bet">Bet Amount:</label>
-    <input type="number" id="bet" bind:value={betAmount} min="1" disabled={spinning || freeGamesRemaining > 0} />
-    <button onclick={spin} disabled={spinning}>Spin</button>
+  <div class="game-controls">
+    <div class="bet-input-group">
+      <label for="bet" class="control-label">Bet Amount:</label>
+      <input type="number" id="bet" bind:value={$betAmount} min={$minBet} max={$maxBet} step={$stepBet} disabled={$spinning || $freeGamesRemaining > 0} class="control-input" />
+      {#if $betLevels.length > 0}
+        <div class="bet-levels">
+          {#each $betLevels as level}
+            <button on:click={() => $betAmount = level} class="bet-level-button">${level.toFixed(2)}</button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <button on:click={handleSpin} disabled={$spinning || !$gameInitialized} class="spin-button">Spin</button>
   </div>
 </div>
+
+<style>
+  .slot-machine-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    background-color: #2c2c2c; /* Darker background for the container */
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-dark);
+    padding: var(--spacing-xl); /* More padding */
+    max-width: 95%; /* Slightly wider */
+    margin: var(--spacing-xl) auto;
+    color: var(--text-color);
+    font-family: var(--font-family-secondary); /* Use secondary font for general text */
+    border: 2px solid var(--primary-color); /* A subtle border */
+  }
+
+  .game-header {
+    width: 100%;
+    display: flex;
+    flex-direction: column; /* Stack title and balance */
+    justify-content: center;
+    align-items: center;
+    margin-bottom: var(--spacing-large);
+    padding-bottom: var(--spacing-medium);
+    border-bottom: 2px solid var(--accent-color); /* Stronger separator */
+  }
+
+  .game-title {
+    color: var(--accent-color); /* Title in accent color */
+    margin: 0 0 var(--spacing-small) 0; /* Space below title */
+    font-family: var(--font-family-primary); /* Primary font for title */
+    font-size: var(--font-size-xxl); /* Larger title */
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    text-shadow: 0 0 10px rgba(231, 76, 60, 0.5); /* Glow effect */
+  }
+
+  .balance-info {
+    font-size: var(--font-size-xl); /* Larger balance info */
+    color: var(--secondary-color);
+    font-weight: bold;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5);
+  }
+
+  .free-games-banner {
+    background-color: var(--accent-color); /* Accent color for banner */
+    color: #ffffff; /* White text on accent */
+    padding: var(--spacing-medium);
+    border-radius: var(--border-radius);
+    margin-bottom: var(--spacing-large);
+    font-weight: bold;
+    text-align: center;
+    width: 100%;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    box-shadow: var(--shadow-medium);
+  }
+
+  .game-area {
+    margin-bottom: var(--spacing-large);
+    border: 3px solid var(--primary-color); /* Thicker border for game area */
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.7); /* Inner shadow for depth */
+    min-width: 410px; /* Ensure enough space for the 7x7 grid */
+    min-height: 480px; /* Ensure enough space for the 7x7 grid */
+    /* background-color: #333; /* Temporary: to visualize the game area */
+  }
+
+  .pixi-canvas-container {
+    /* PIXI canvas will take care of its own sizing */
+    width: 100%;
+    height: 100%;
+  }
+
+  .game-messages {
+    min-height: 2.5em; /* More space for messages */
+    text-align: center;
+    margin-bottom: var(--spacing-large);
+    font-size: var(--font-size-large);
+    font-weight: bold;
+    text-transform: uppercase;
+  }
+
+  .main-message {
+    color: var(--text-color);
+  }
+
+  .win-display {
+    color: var(--accent-color); /* Accent color for win display */
+    font-weight: bold;
+    margin-left: var(--spacing-small);
+    text-shadow: 0 0 8px rgba(231, 76, 60, 0.7);
+  }
+
+  .total-win-overlay {
+    font-size: var(--font-size-xxl);
+    color: var(--accent-color);
+    font-weight: bold;
+    margin-bottom: var(--spacing-medium);
+    animation: fadeOutUp 2s forwards;
+    text-shadow: 0 0 15px rgba(231, 76, 60, 0.9); /* Stronger glow */
+  }
+
+  @keyframes fadeOutUp {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-50px); /* Move further up */
+    }
+  }
+
+  .game-controls {
+    display: flex;
+    gap: var(--spacing-large); /* More space between controls */
+    align-items: center;
+    width: 100%;
+    justify-content: center;
+    padding-top: var(--spacing-medium);
+    border-top: 1px solid var(--border-color);
+  }
+
+  .bet-input-group {
+    display: flex;
+    flex-direction: column; /* Stack label and input */
+    align-items: center;
+    gap: var(--spacing-small);
+  }
+
+  .control-label {
+    font-size: var(--font-size-medium);
+    color: var(--secondary-color); /* Lighter color for labels */
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .control-input {
+    width: 100px; /* Wider input */
+    padding: var(--spacing-small);
+    border-radius: var(--border-radius);
+    border: 2px solid var(--primary-color); /* Stronger border */
+    background-color: #1a1a1a; /* Dark background */
+    color: var(--text-color);
+    font-size: var(--font-size-large); /* Larger text in input */
+    text-align: center;
+    box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.5);
+  }
+
+  .control-input:focus {
+    outline: none;
+    border-color: var(--accent-color); /* Accent on focus */
+    box-shadow: inset 0 0 5px rgba(231, 76, 60, 0.5), 0 0 10px rgba(231, 76, 60, 0.3);
+  }
+
+  .spin-button {
+    padding: var(--spacing-medium) var(--spacing-xl); /* Larger button */
+    font-size: var(--font-size-xl); /* Larger font */
+    background-color: var(--accent-color); /* Accent color for spin button */
+    color: #ffffff;
+    border: 2px solid var(--danger-color); /* Red border for intensity */
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    text-transform: uppercase;
+    font-family: var(--font-family-primary); /* Primary font for button */
+    letter-spacing: 1px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5); /* Lifted shadow */
+  }
+
+  .spin-button:hover:not(:disabled) {
+    background-color: var(--danger-color); /* Darker red on hover */
+    transform: translateY(-2px); /* Slight lift */
+    box-shadow: 0 7px 20px rgba(0, 0, 0, 0.7);
+  }
+
+  .spin-button:disabled {
+    background-color: #555;
+    border-color: #333;
+    color: #aaa;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .bet-levels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 10px;
+    justify-content: center;
+  }
+
+  .bet-level-button {
+    padding: 8px 12px;
+    background-color: #444;
+    color: white;
+    border: 1px solid #666;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: background-color 0.2s;
+  }
+
+  .bet-level-button:hover {
+    background-color: #666;
+  }
+</style>

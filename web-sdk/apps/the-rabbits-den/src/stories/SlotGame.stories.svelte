@@ -2,12 +2,11 @@
   import type { Meta, StoryObj } from '@storybook/svelte';
   import SlotGame from '../lib/SlotGame.svelte';
 
-  const meta = {
+  
+    export const meta = {
     title: 'Slot/SlotGame',
     component: SlotGame,
   } satisfies Meta<SlotGame>;
-
-  export default meta;
 
   type Story = StoryObj<typeof meta>;
 
