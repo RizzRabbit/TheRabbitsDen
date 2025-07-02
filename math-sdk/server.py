@@ -46,19 +46,28 @@ def spin_game():
         free_games_remaining = gamestate.fs
         
 
-        # Simulate cascade results (math-sdk might provide this differently)
         cascade_results = []
-        if gamestate.win_data and gamestate.win_data["wins"]:
-            # This is a simplified representation. The math-sdk might have more detailed cascade info.
-            cascade_results.append({
-                "grid": gamestate.board.get_board(), # Grid after first win
-                "winning_cells": [],
-                "win_amount": gamestate.win_data["totalWin"], # Win from this cascade
-                "message": "Win!"
-            })
-            for win in gamestate.win_data["wins"]:
-                for pos in win["positions"]:
-                    cascade_results[-1]["winning_cells"].append([pos["reel"], pos["row"]])
+        for event in gamestate.book:
+            if "tumbleWin" in event:
+                tumble_win_data = event["tumbleWin"]
+                winning_cells = []
+                for win in tumble_win_data["wins"]:
+                    for pos in win["positions"]:
+                        winning_cells.append([pos["reel"], pos["row"]])
+                cascade_results.append({
+                    "grid": tumble_win_data["currentBoard"],
+                    "winning_cells": winning_cells,
+                    "win_amount": tumble_win_data["totalWin"],
+                    "message": "Tumble Win!"
+                })
+            elif "tumble" in event:
+                tumble_data = event["tumble"]
+                cascade_results.append({
+                    "grid": tumble_data["currentBoard"],
+                    "winning_cells": [], # No new wins in a simple tumble
+                    "win_amount": 0,
+                    "message": "Tumble!"
+                })
 
 
         response_data = {
